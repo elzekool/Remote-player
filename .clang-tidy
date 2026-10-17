@@ -1,0 +1,16 @@
+# Static analysis with clang-tidy. In VS Code, the C/C++ extension uses this file for
+# "C/C++: Run Code Analysis on Active File" / "... on All Files".
+Checks: >
+  -*,
+  bugprone-*,
+  clang-analyzer-*,
+  performance-*,
+  readability-function-cognitive-complexity,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-macro-parentheses,
+  -bugprone-narrowing-conversions,
+  -bugprone-signed-bitwise
+
+# Report findings in this project's headers, not in libraries or the framework.
+HeaderFilterRegex: '.*'
+ExcludeHeaderFilterRegex: '(^|.*[/\\])(\.pio|\.platformio)[/\\].*'

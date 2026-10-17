@@ -1,0 +1,16 @@
+# Code style: Google's C++ style. The C/C++ extension in VS Code picks this file up for
+# "Format Document" (Shift+Alt+F).
+BasedOnStyle: Google
+
+# We also use the general Google Code Style with the following exceptions as they
+# follow the Arduino generic code style better
+#
+# - Constants are named like THIS_IS_A_CONSTANT instead of kThisIsAConstant
+# - Function names use camelCase instead of PascalCase
+# - Header guards use #pragma once
+# - Enum values are named like ThisIsAValue instead of kThisIsAValue
+# - Variables, parameters and class/struct members use camelCase instead of
+#   snake_case, without a trailing underscore for class members
+#
+# As in Google style, types use PascalCase and file names use snake_case.
+
