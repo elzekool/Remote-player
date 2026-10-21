@@ -52,6 +52,11 @@ struct Player {
   bool repeatActive = false;
   TrackList repeatTracks;
   int repeatRemaining = 0;
+  // Set by "replace" with a transition: when the current track finishes, a
+  // track from transitionTracks plays before the repeat continues. It doesn't
+  // count towards repeatRemaining, and any later command cancels it.
+  bool transitionPending = false;
+  TrackList transitionTracks;
   // State of the "delayed" command: delayedTrack starts at delayedDue unless
   // another command for the unit comes in first.
   bool delayedActive = false;

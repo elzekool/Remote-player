@@ -62,7 +62,18 @@ static void startTrack(Player& p, const Track& track, bool loop = false) {
   audioPlay(p.unit - 1, track, loop);
 }
 
-static void cancelRepeat(Player& p) { p.repeatActive = false; }
+static void cancelTransition(Player& p) {
+  if (p.transitionPending) {
+    logf("[unit %d] Transition %s cancelled", p.unit,
+         p.transitionTracks.toString().c_str());
+    p.transitionPending = false;
+  }
+}
+
+static void cancelRepeat(Player& p) {
+  p.repeatActive = false;
+  p.transitionPending = false;
+}
 
 static void cancelDelayed(Player& p) {
   if (p.delayedActive) {
@@ -140,56 +151,101 @@ static String describePick(const TrackList& tracks, const Track& track) {
   return s;
 }
 
-// The arguments of a unit command, parsed as its UnitCommand entry describes.
-struct CommandArgs {
-  TrackList tracks;
-  int number = 0;  // 0 when an optional number is left out
+// The kinds of argument a unit command takes. None ends a command's list.
+enum class Argument : uint8_t {
+  None,
+  Track,           // a track list, see parseTrackList()
+  TrackOptional,
+  Number,          // a non-negative number; the command checks its range
+  NumberOptional,
 };
 
-enum class NumberArg : uint8_t { None, Optional, Required };
+const int MAX_COMMAND_ARGS = 2;
 
-// A command for one unit and the arguments it takes, in this order: a track
-// list (if takesTracks), then a number from 0 to maxNumber.
+// The arguments of a unit command, by kind in the order they were given: the
+// first track list is tracks[0], the first number numbers[0]. A left out
+// optional track list is empty, a left out optional number 0.
+struct CommandArgs {
+  TrackList tracks[MAX_COMMAND_ARGS];
+  int numbers[MAX_COMMAND_ARGS] = {};
+};
+
+// A command for one unit. run() returns false if the arguments are invalid,
+// and must check that before changing anything; then it calls beginCommand()
+// or beginPlayback().
 struct UnitCommand {
   const char* name;
-  bool takesTracks;
-  NumberArg number;
-  int maxNumber;
-  bool startsPlayback;  // refused while the unit is disabled
-  void (*run)(Player& p, const CommandArgs& args);
+  Argument args[MAX_COMMAND_ARGS];
+  bool (*run)(Player& p, const CommandArgs& args);
 };
 
-static void runPlay(Player& p, const CommandArgs& args) {
-  Track track = args.tracks.pick();
-  logf("[unit %d] Playing track %s", p.unit,
-       describePick(args.tracks, track).c_str());
-  cancelRepeat(p);
-  startTrack(p, track);
+// Every valid command cancels a pending delayed track and a pending transition.
+static void beginCommand(Player& p) {
+  cancelDelayed(p);
+  cancelTransition(p);
 }
 
-static void runDelayed(Player& p, const CommandArgs& args) {
-  Track track = args.tracks.pick();
+// Like beginCommand(), for commands that start playback. Returns false if the
+// unit is disabled, which the command then ignores.
+static bool beginPlayback(Player& p) {
+  beginCommand(p);
+  return playbackEnabled(p);
+}
+
+static bool runPlay(Player& p, const CommandArgs& args) {
+  if (!beginPlayback(p)) {
+    return true;
+  }
+  Track track = args.tracks[0].pick();
+  logf("[unit %d] Playing track %s", p.unit,
+       describePick(args.tracks[0], track).c_str());
+  cancelRepeat(p);
+  startTrack(p, track);
+  return true;
+}
+
+static bool runDelayed(Player& p, const CommandArgs& args) {
+  int delay = args.numbers[0];
+  if (delay > MAX_DELAY_MS) {
+    return false;
+  }
+  if (!beginPlayback(p)) {
+    return true;
+  }
+  Track track = args.tracks[0].pick();
   logf("[unit %d] Playing track %s in %d ms", p.unit,
-       describePick(args.tracks, track).c_str(), args.number);
+       describePick(args.tracks[0], track).c_str(), delay);
   cancelRepeat(p);
   p.delayedActive = true;
   p.delayedTrack = track;
-  p.delayedDue = millis() + args.number;
+  p.delayedDue = millis() + delay;
+  return true;
 }
 
-static void runLoop(Player& p, const CommandArgs& args) {
-  Track track = args.tracks.pick();
+static bool runLoop(Player& p, const CommandArgs& args) {
+  if (!beginPlayback(p)) {
+    return true;
+  }
+  Track track = args.tracks[0].pick();
   logf("[unit %d] Looping track %s", p.unit,
-       describePick(args.tracks, track).c_str());
+       describePick(args.tracks[0], track).c_str());
   cancelRepeat(p);
   startTrack(p, track, true);
+  return true;
 }
 
 // A count of 0 repeats until stopped.
-static void runRepeat(Player& p, const CommandArgs& args) {
-  int count = args.number;
-  Track track = args.tracks.pick();
-  String description = describePick(args.tracks, track);
+static bool runRepeat(Player& p, const CommandArgs& args) {
+  int count = args.numbers[0];
+  if (count > MAX_REPEAT_COUNT) {
+    return false;
+  }
+  if (!beginPlayback(p)) {
+    return true;
+  }
+  const TrackList& tracks = args.tracks[0];
+  Track track = tracks.pick();
+  String description = describePick(tracks, track);
   if (count == 0) {
     logf("[unit %d] Repeating indefinitely, starting with track %s", p.unit,
          description.c_str());
@@ -198,60 +254,84 @@ static void runRepeat(Player& p, const CommandArgs& args) {
          description.c_str());
   }
   p.repeatActive = true;
-  p.repeatTracks = args.tracks;
+  p.repeatTracks = tracks;
   p.repeatRemaining = count == 0 ? 0 : count - 1;
   startTrack(p, track);
   if (count == 1) {
     cancelRepeat(p);
   }
+  return true;
 }
 
-static void runReplace(Player& p, const CommandArgs& args) {
+static bool runReplace(Player& p, const CommandArgs& args) {
+  beginCommand(p);
   if (!p.repeatActive) {
     logf("[unit %d] Nothing repeating, ignoring replace", p.unit);
-    return;
+    return true;
   }
-  logf("[unit %d] Next repeat will play %s %s", p.unit,
-       args.tracks.count > 1 ? "a track picked from" : "track",
-       args.tracks.toString().c_str());
-  p.repeatTracks = args.tracks;
+  const TrackList& tracks = args.tracks[0];
+  const TrackList& transition = args.tracks[1];
+  const char* kind = tracks.count > 1 ? "a track picked from" : "track";
+  if (transition.count > 0) {
+    logf("[unit %d] Next repeat will play transition %s, then %s %s", p.unit,
+         transition.toString().c_str(), kind, tracks.toString().c_str());
+    p.transitionPending = true;
+    p.transitionTracks = transition;
+  } else {
+    logf("[unit %d] Next repeat will play %s %s", p.unit, kind,
+         tracks.toString().c_str());
+  }
+  p.repeatTracks = tracks;
+  return true;
 }
 
-static void runStop(Player& p, const CommandArgs&) {
+static bool runStop(Player& p, const CommandArgs&) {
+  beginCommand(p);
   logf("[unit %d] Stopping playback", p.unit);
   stopPlayer(p);
+  return true;
 }
 
-static void runDisable(Player& p, const CommandArgs&) {
+static bool runDisable(Player& p, const CommandArgs&) {
+  beginCommand(p);
   logf("[unit %d] Disabling playback", p.unit);
   stopPlayer(p);
   p.enabled = false;
   saveEnabled(p, false);
+  return true;
 }
 
-static void runEnable(Player& p, const CommandArgs&) {
+static bool runEnable(Player& p, const CommandArgs&) {
+  beginCommand(p);
   logf("[unit %d] Enabling playback", p.unit);
   p.enabled = true;
   saveEnabled(p, true);
+  return true;
 }
 
-static void runVolume(Player& p, const CommandArgs& args) {
-  logf("[unit %d] Setting volume to %d", p.unit, args.number);
-  audioSetVolume(p.unit - 1, args.number);
-  p.volume = args.number;
-  saveVolume(p, args.number);
+static bool runVolume(Player& p, const CommandArgs& args) {
+  int volume = args.numbers[0];
+  if (volume > MAX_VOLUME) {
+    return false;
+  }
+  beginCommand(p);
+  logf("[unit %d] Setting volume to %d", p.unit, volume);
+  audioSetVolume(p.unit - 1, volume);
+  p.volume = volume;
+  saveVolume(p, volume);
+  return true;
 }
 
 static const UnitCommand UNIT_COMMANDS[] = {
-    {"play", true, NumberArg::None, 0, true, runPlay},
-    {"delayed", true, NumberArg::Required, MAX_DELAY_MS, true, runDelayed},
-    {"loop", true, NumberArg::None, 0, true, runLoop},
-    {"repeat", true, NumberArg::Optional, MAX_REPEAT_COUNT, true, runRepeat},
-    {"replace", true, NumberArg::None, 0, false, runReplace},
-    {"stop", false, NumberArg::None, 0, false, runStop},
-    {"disable", false, NumberArg::None, 0, false, runDisable},
-    {"enable", false, NumberArg::None, 0, false, runEnable},
-    {"volume", false, NumberArg::Required, MAX_VOLUME, false, runVolume},
+    {"play", {Argument::Track}, runPlay},
+    {"delayed", {Argument::Track, Argument::Number}, runDelayed},
+    {"loop", {Argument::Track}, runLoop},
+    {"repeat", {Argument::Track, Argument::NumberOptional}, runRepeat},
+    {"replace", {Argument::Track, Argument::TrackOptional}, runReplace},
+    {"stop", {}, runStop},
+    {"disable", {}, runDisable},
+    {"enable", {}, runEnable},
+    {"volume", {Argument::Number}, runVolume},
 };
 
 static const UnitCommand* findUnitCommand(const String& name) {
@@ -263,44 +343,46 @@ static const UnitCommand* findUnitCommand(const String& name) {
   return nullptr;
 }
 
-// Parses the words after the command name as the command describes. Returns
-// false if they don't match.
+// Parses the words after the command name as the command's argument list
+// describes. Returns false if they don't match.
 static bool parseCommandArgs(const UnitCommand& command, const ArgList& args,
                              CommandArgs& out) {
   int next = 1;
-  if (command.takesTracks) {
-    if (next >= args.argCount ||
-        !parseTrackList(args.arguments[next], out.tracks)) {
+  int trackCount = 0;
+  int numberCount = 0;
+  for (Argument kind : command.args) {
+    if (kind == Argument::None) {
+      break;
+    }
+    bool optional =
+        kind == Argument::TrackOptional || kind == Argument::NumberOptional;
+    if (next >= args.argCount) {
+      if (!optional) {
+        return false;
+      }
+      continue;
+    }
+    const String& word = args.arguments[next++];
+    if (kind == Argument::Track || kind == Argument::TrackOptional) {
+      if (!parseTrackList(word, out.tracks[trackCount++])) {
+        return false;
+      }
+    } else if (!parseNumber(word, 0, INT_MAX, out.numbers[numberCount++])) {
       return false;
     }
-    next++;
-  }
-  if (command.number != NumberArg::None && next < args.argCount) {
-    if (!parseNumber(args.arguments[next], 0, command.maxNumber, out.number)) {
-      return false;
-    }
-    next++;
-  } else if (command.number == NumberArg::Required) {
-    return false;
   }
   return next == args.argCount;
 }
 
 // Runs one command on one unit; args.arguments[0] is the command name in lower
-// case. Returns false if the command or its arguments are invalid. Every valid
-// command cancels a pending delayed track.
+// case. Returns false if the command or its arguments are invalid.
 static bool handleUnitCommand(Player& p, const ArgList& args) {
   const UnitCommand* command = findUnitCommand(args.arguments[0]);
   CommandArgs parsed;
   if (command == nullptr || !parseCommandArgs(*command, args, parsed)) {
     return false;
   }
-  cancelDelayed(p);
-  if (command->startsPlayback && !playbackEnabled(p)) {
-    return true;
-  }
-  command->run(p, parsed);
-  return true;
+  return command->run(p, parsed);
 }
 
 // Commands have the form "[<unit>:]<command> [args]", where <unit> is 1-4 or
@@ -411,6 +493,15 @@ static void handlePlayFinished(Player& p, const Track& track) {
   logf("[unit %d] Finished track %s", p.unit, track.toString().c_str());
   p.playing = false;
   if (!p.repeatActive) {
+    return;
+  }
+  // The transition plays in between and leaves the count alone.
+  if (p.transitionPending) {
+    p.transitionPending = false;
+    Track transition = p.transitionTracks.pick();
+    logf("[unit %d] Playing transition track %s", p.unit,
+         describePick(p.transitionTracks, transition).c_str());
+    startTrack(p, transition);
     return;
   }
   if (p.repeatRemaining > 0) {

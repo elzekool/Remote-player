@@ -140,16 +140,16 @@ reference. In short:
 
 The unit prefix is `1`-`4` or `all`; without a prefix the command goes to unit 1.
 
-| Command                 | What it does                                              |
-|-------------------------|-----------------------------------------------------------|
-| `play TRACKS`           | Plays a track once                                        |
-| `loop TRACKS`           | Plays a track over and over until stopped                 |
-| `repeat TRACKS [COUNT]` | Plays COUNT tracks in a row; without COUNT, until stopped |
-| `replace TRACKS`        | Changes the tracks a running repeat picks from            |
-| `delayed TRACKS MS`     | Plays a track after MS milliseconds (max 5000)            |
-| `stop`                  | Stops playback                                            |
-| `volume N`              | Sets the volume, 0-30 (saved)                             |
-| `disable` / `enable`    | Blocks or allows playback (saved)                         |
+| Command                  | What it does                                                      |
+|--------------------------|-------------------------------------------------------------------|
+| `play TRACKS`            | Plays a track once                                                |
+| `loop TRACKS`            | Plays a track over and over until stopped                         |
+| `repeat TRACKS [COUNT]`  | Plays COUNT tracks in a row; without COUNT, until stopped         |
+| `replace TRACKS [TRANS]` | Changes the tracks a running repeat picks from; TRANS plays first |
+| `delayed TRACKS MS`      | Plays a track after MS milliseconds (max 5000)                    |
+| `stop`                   | Stops playback                                                    |
+| `volume N`               | Sets the volume, 0-30 (saved)                                     |
+| `disable` / `enable`     | Blocks or allows playback (saved)                                 |
 
 `TRACKS` is one track (`4`, `"hello"`) or a list to pick from at random (`1,"hello",6`).
 

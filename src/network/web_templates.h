@@ -257,8 +257,9 @@ static const char USAGE_TEMPLATE[] = R"html(<main>
     <tr><td><code>repeat TRACKS [COUNT]</code></td><td>Plays COUNT tracks one after the other,
       picking a new one from the list each time (up to {{MAX_REPEAT_COUNT}}). Without COUNT, or
       with 0, it continues until stopped.</td></tr>
-    <tr><td><code>replace TRACKS</code></td><td>Changes the tracks a running repeat picks from,
-      from the next track on.</td></tr>
+    <tr><td><code>replace TRACKS [TRANSITION]</code></td><td>Changes the tracks a running repeat
+      picks from, from the next track on. With TRANSITION, that track plays first; it doesn't count
+      towards COUNT, and any other command before it starts cancels it.</td></tr>
     <tr><td><code>delayed TRACKS MS</code></td><td>Plays a track after MS milliseconds
       (0-{{MAX_DELAY_MS}}), unless another command for the unit comes first.</td></tr>
     <tr><td><code>stop</code></td><td>Stops playback, including a loop or repeat.</td></tr>
@@ -278,6 +279,7 @@ static const char USAGE_TEMPLATE[] = R"html(<main>
     <tr><td><code>play 4</code></td><td>Unit 1 plays track 4</td></tr>
     <tr><td><code>2:loop "chime"</code></td><td>Unit 2 plays <code>chime</code> until stopped</td></tr>
     <tr><td><code>3:repeat 1,2,3 5</code></td><td>Unit 3 plays five tracks, each picked from 1, 2 and 3</td></tr>
+    <tr><td><code>replace "loop2" "loop1to2"</code></td><td>After the current track, unit 1 plays <code>loop1to2</code>, then repeats <code>loop2</code></td></tr>
     <tr><td><code>4:delayed "doors closing" 1500</code></td><td>Unit 4 plays <code>doors closing</code> after 1.5 seconds</td></tr>
     <tr><td><code>all:volume 20</code></td><td>Sets every unit to volume 20</td></tr>
     <tr><td><code>all:stop</code></td><td>Stops every unit</td></tr>
